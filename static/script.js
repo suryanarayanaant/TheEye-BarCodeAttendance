@@ -1,27 +1,40 @@
-// Global variable to track whether the QR code has been scanned
-let scanning = true;
+const video = document.getElementById('video');
+const captureButton = document.getElementById('capture');
+const resultDiv = document.getElementById('result');
 
-function fetchQRData() {
-    if (!scanning) return;
+// Start the video feed
+navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    .then(stream => video.srcObject = stream)
+    .catch(err => console.error('Camera access denied:', err));
 
-    fetch('/qrdata')
-        .then(response => response.json())
-        .then(data => {
-            if (data.qr_data) {
-                // Display QR code data as a pop-up
-                alert('QR Code Data: ' + data.qr_data);
+// Capture frame on button click
+captureButton.addEventListener('click', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                // Ask the user if they want to scan again
-                let scanAgain = confirm('Do you want to scan again?');
-
-                if (!scanAgain) {
-                    // Stop scanning by sending a request to close the camera
-                    scanning = false;
-                    fetch('/stop_scan');
-                }
-            }
+    const frameData = canvas.toDataURL('image/jpeg');
+    try {
+        const response = await fetch('/capture', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ frame: frameData })
         });
-}
 
-// Call the fetchQRData function every 3 seconds to check for new QR data
-setInterval(fetchQRData, 3000); // 3000ms = 3 seconds
+        const result = await response.json();
+        if (result.status === 'success') {
+            resultDiv.innerHTML = `
+                <p>Roll Number: ${result.qr_code}</p>
+                <p>Name: ${result.name}</p>
+            `;
+        } else if (result.status === 'failure') {
+            resultDiv.innerHTML = `<p>Error: ${result.message}</p>`;
+        } else {
+            resultDiv.innerHTML = `<p>Unexpected Error: ${result.message}</p>`;
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `<p>Error: Unable to communicate with the server.</p>`;
+        console.error('Error capturing frame:', error);
+    }
+});
